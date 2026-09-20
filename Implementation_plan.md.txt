@@ -1,0 +1,1704 @@
+# Master Implementation Plan
+
+## Content-Provenance Watermarking for AI-Generated Media
+
+### Project Objective
+
+Build a web-based **AI-generated image provenance and verification system** that:
+
+```text
+AI Image Generation
+        ↓
+Image Preprocessing
+        ↓
+Invisible DWT-DCT Watermark
+        ↓
+SHA-256 Hash
+        ↓
+Provenance Registration
+        ↓
+PostgreSQL
+        ↓
+Image Distribution
+        ↓
+Verification
+        ↓
+Authenticity / Modification Result
+```
+
+The system will focus on **images for the MVP**. Video/audio, blockchain, C2PA interoperability, and neural watermarking remain future/advanced work, consistent with the report's scope. 
+
+---
+
+# 1. Project Understanding
+
+## 1.1 What the system does
+
+A user can:
+
+1. Generate an AI image.
+2. Protect the image using an invisible watermark.
+3. Register its provenance in PostgreSQL.
+4. Download/share the protected image.
+5. Later upload the image for verification.
+6. The system extracts the watermark.
+7. The extracted ID is used to locate the provenance record.
+8. SHA-256 is recalculated.
+9. The system compares the submitted file with the registered file.
+10. A verification result is returned.
+
+The core idea is therefore:
+
+> **Register first → embed provenance → verify later.**
+
+It is **not** an AI-image detector or general deepfake detector. 
+
+---
+
+# 2. Scope
+
+## MVP — Must Build
+
+| Feature                        | Status |
+| ------------------------------ | ------ |
+| User registration/login        | ✅      |
+| AI image generation            | ✅      |
+| Image upload                   | ✅      |
+| DWT-DCT watermarking           | ✅      |
+| Blind watermark extraction     | ✅      |
+| SHA-256 hashing                | ✅      |
+| PostgreSQL provenance registry | ✅      |
+| FastAPI backend                | ✅      |
+| React + Tailwind frontend      | ✅      |
+| Verification engine            | ✅      |
+| JPEG robustness testing        | ✅      |
+| Resizing robustness testing    | ✅      |
+| Basic modification detection   | ✅      |
+| Verification history           | ✅      |
+
+## Advanced / Future
+
+| Feature                       | Status |
+| ----------------------------- | ------ |
+| Video watermarking            | Later  |
+| Audio watermarking            | Later  |
+| Blockchain                    | Later  |
+| C2PA                          | Later  |
+| Neural watermarking           | Later  |
+| Browser extension             | Later  |
+| Mobile application            | Later  |
+| Large-scale platform scanning | Later  |
+
+The report itself identifies multimedia expansion and technologies such as blockchain/C2PA as future directions rather than the core implementation. 
+
+---
+
+# 3. Final Technology Stack
+
+### Frontend
+
+* React
+* Tailwind CSS
+* React Router
+* Axios or Fetch
+
+### Backend
+
+* Python
+* FastAPI
+* SQLAlchemy
+* Pydantic
+* JWT authentication
+
+### Database
+
+* PostgreSQL
+
+### AI
+
+**MVP: choose ONE image-generation provider.**
+
+Recommended approach:
+
+```text
+Stable Diffusion API
+```
+
+Do not initially build separate Stable Diffusion + GPT image-generation implementations.
+
+The report lists Stable Diffusion and GPT APIs as generation technologies, but the application does not need multiple providers to demonstrate its provenance contribution. 
+
+### Image Processing
+
+* OpenCV
+* Pillow
+* NumPy
+* PyWavelets
+* SciPy/OpenCV DCT
+
+### Security
+
+* SHA-256
+* bcrypt/Argon2 for passwords
+* JWT
+* Environment variables
+
+---
+
+# 4. Final System Architecture
+
+```text
+┌──────────────────────────────────────────────┐
+│             React + Tailwind UI              │
+│                                              │
+│ Generate │ Register │ Verify │ History      │
+└──────────────────────┬───────────────────────┘
+                       │
+                       │ REST / JSON
+                       ▼
+┌──────────────────────────────────────────────┐
+│                 FastAPI                      │
+│                                              │
+│ Authentication                               │
+│ AI Generation                                │
+│ Upload / Preprocessing                       │
+│ Watermarking                                 │
+│ Hashing                                      │
+│ Provenance                                   │
+│ Verification                                 │
+└───────────┬────────────┬────────────┬────────┘
+            │            │            │
+            ▼            ▼            ▼
+      ┌──────────┐ ┌──────────┐ ┌────────────┐
+      │ AI API   │ │ DWT-DCT  │ │ SHA-256    │
+      │          │ │ Engine   │ │ Hashing    │
+      └──────────┘ └──────────┘ └────────────┘
+                         │
+                         ▼
+                ┌────────────────┐
+                │ Provenance     │
+                │ Verification   │
+                │ Engine         │
+                └───────┬────────┘
+                        │
+               ┌────────┴────────┐
+               ▼                 ▼
+        ┌─────────────┐   ┌──────────────┐
+        │ PostgreSQL  │   │ File Storage │
+        │ Provenance  │   │ Images       │
+        └─────────────┘   └──────────────┘
+```
+
+The report's methodology directly supports the sequence of feature analysis → DWT-DCT → hashing → provenance registration → verification. 
+
+---
+
+# 5. Core Modules
+
+## A. Authentication
+
+Handles:
+
+* Registration
+* Login
+* Password hashing
+* JWT
+* Protected routes
+
+---
+
+## B. AI Generation
+
+Input:
+
+```text
+Prompt
+```
+
+Output:
+
+```text
+AI-generated image
++
+generation metadata
+```
+
+Store:
+
+* Prompt
+* Model
+* Timestamp
+* Dimensions
+* Original image
+* Original SHA-256
+
+---
+
+## C. Image Preprocessing
+
+Perform:
+
+```text
+Input Image
+    ↓
+Validate
+    ↓
+Decode
+    ↓
+RGB → YCbCr
+    ↓
+Use Y channel
+    ↓
+Normalize dimensions
+```
+
+### Important MVP decision
+
+To make **resize robustness realistic**, the MVP will use a **canonical protected resolution**, preferably:
+
+```text
+512 × 512
+```
+
+If an input image has another aspect ratio, it will be resized/padded to the canonical size before watermarking.
+
+For a later resized copy:
+
+```text
+512 × 512
+      ↓
+256 × 256
+      ↓
+Verification
+      ↓
+Normalize back to 512 × 512
+      ↓
+DWT-DCT extraction
+```
+
+This gives the DWT-DCT block grid a consistent reference.
+
+**Cropping will be treated as an experimental robustness test, not a guaranteed MVP capability.**
+
+---
+
+# 6. Watermarking Design
+
+This is the **most important technical component**.
+
+The report specifically proposes DWT-DCT watermarking and expects the watermark to survive common transformations. 
+
+## 6.1 Embedding Pipeline
+
+```text
+RGB Image
+    ↓
+YCbCr Conversion
+    ↓
+Y Channel
+    ↓
+Single-Level DWT
+    ↓
+HL/LH Subband
+    ↓
+8×8 Blocks
+    ↓
+DCT
+    ↓
+Coefficient Modification
+    ↓
+Inverse DCT
+    ↓
+Inverse DWT
+    ↓
+YCbCr → RGB
+    ↓
+Watermarked PNG
+```
+
+---
+
+# 7. DWT Design
+
+Use:
+
+```text
+Wavelet: Haar
+Level: 1
+```
+
+DWT produces:
+
+```text
+             DWT
+              │
+      ┌───────┼───────┐
+      ▼       ▼       ▼
+     LL      LH      HL      HH
+```
+
+### LL
+
+Avoid embedding here.
+
+It contains low-frequency image information and modifications are more noticeable.
+
+### LH / HL
+
+Use as the primary embedding region.
+
+These provide the practical compromise between:
+
+* imperceptibility
+* robustness
+
+### HH
+
+Do not use as the primary watermark location because high-frequency information is more vulnerable to compression.
+
+---
+
+# 8. DCT Design
+
+Divide the selected subband into:
+
+```text
+8 × 8 blocks
+```
+
+Apply:
+
+```text
+cv2.dct()
+```
+
+to every block.
+
+Use **mid-frequency coefficients** rather than:
+
+* DC coefficient
+* extremely high-frequency coefficients
+
+---
+
+# 9. Watermark Payload
+
+Do **not** put the entire provenance JSON inside the image.
+
+Instead embed:
+
+```text
+MAGIC HEADER
++
+PROVENANCE ID
++
+CHECKSUM
+```
+
+Example:
+
+```text
+[32-bit magic]
+[128-bit UUID]
+[32-bit CRC/check value]
+```
+
+Total:
+
+```text
+192 bits
+```
+
+This payload is small enough to allow redundancy.
+
+The complete information remains in PostgreSQL.
+
+This follows the existing plan's core idea of using a short embedded identifier as a lookup key rather than storing a large provenance record inside the image. 
+
+---
+
+# 10. Error Correction
+
+For MVP:
+
+### Repetition coding
+
+Repeat each payload bit multiple times.
+
+Example:
+
+```text
+1 → 11111
+0 → 00000
+```
+
+During extraction:
+
+```text
+11101 → majority = 1
+```
+
+This provides basic robustness against individual bit errors.
+
+### Advanced version
+
+Later:
+
+* BCH
+* Reed-Solomon
+
+Do not implement these before the basic watermark works.
+
+---
+
+# 11. Embedding Strength
+
+Use:
+
+```text
+delta
+```
+
+as the configurable embedding-strength parameter.
+
+Conceptually:
+
+```text
+Higher delta
+    ↓
+More robust
+    ↓
+More image distortion
+```
+
+and:
+
+```text
+Lower delta
+    ↓
+Less distortion
+    ↓
+More fragile
+```
+
+Therefore:
+
+**Do not hard-code a value such as `delta = 12` and call it optimal.**
+
+Test several values:
+
+```text
+delta = 5
+delta = 8
+delta = 10
+delta = 12
+delta = 15
+```
+
+Then compare:
+
+* PSNR
+* SSIM
+* extraction accuracy
+* JPEG robustness
+* visual quality
+
+Choose the smallest value that provides acceptable robustness.
+
+---
+
+# 12. Blind Extraction
+
+The verifier will **not have the original image**.
+
+Therefore:
+
+```text
+Submitted Image
+      ↓
+Normalization
+      ↓
+DWT
+      ↓
+HL
+      ↓
+8×8 blocks
+      ↓
+DCT
+      ↓
+Coefficient comparison
+      ↓
+Payload bits
+      ↓
+Error correction
+      ↓
+CRC/magic validation
+      ↓
+Provenance ID
+```
+
+The magic header/checksum is important because it reduces the chance that an unrelated image produces a random sequence that looks like a valid watermark.
+
+---
+
+# 13. Robustness Strategy
+
+This is one of the major changes from the original plan.
+
+We will **not claim universal robustness**.
+
+### Required MVP tests
+
+| Transformation        | MVP |
+| --------------------- | --- |
+| JPEG quality 90       | ✅   |
+| JPEG quality 75       | ✅   |
+| JPEG quality 50       | ✅   |
+| PNG → JPEG → PNG      | ✅   |
+| Resize 50%            | ✅   |
+| Resize 75%            | ✅   |
+| Resize 150%           | ✅   |
+| Brightness adjustment | ✅   |
+| Mild noise            | ✅   |
+
+### Experimental
+
+| Transformation      | Status       |
+| ------------------- | ------------ |
+| 10% crop            | Experimental |
+| 25% crop            | Experimental |
+| Text overlay        | Experimental |
+| Rotation            | Experimental |
+| Heavy compression   | Experimental |
+| Aggressive cropping | Experimental |
+
+The report recognizes that invisible watermarking can struggle with compression, resizing and filtering; therefore the actual project should **measure these cases rather than simply claim success**. 
+
+---
+
+# 14. Important Limitation
+
+The system must never claim:
+
+> "The watermark cannot be removed."
+
+Instead:
+
+> **"The system is designed to maintain provenance information under common, non-adversarial transformations."**
+
+A determined attacker may still destroy the watermark.
+
+This is also consistent with the existing plan's explicit limitation. 
+
+---
+
+# 15. Database Design
+
+Use five main tables.
+
+```text
+users
+   │
+   ▼
+generated_media
+   │
+   ├───────────────┐
+   ▼               ▼
+watermark_records  provenance_records
+                       │
+                       ▼
+               verification_records
+```
+
+## users
+
+```text
+id
+email
+password_hash
+display_name
+role
+created_at
+```
+
+## generated_media
+
+```text
+id
+user_id
+prompt
+generation_source
+original_file_path
+original_hash_sha256
+watermarked_file_path
+watermarked_hash_sha256
+width
+height
+created_at
+```
+
+## watermark_records
+
+```text
+id
+media_id
+payload_id
+algorithm
+embedding_params
+created_at
+```
+
+## provenance_records
+
+```text
+id
+media_id
+owner_id
+watermark_record_id
+registered_hash_sha256
+status
+registered_at
+```
+
+## verification_records
+
+```text
+id
+provenance_record_id
+verifier_user_id
+submitted_file_hash_sha256
+extracted_payload_id
+hash_match
+verdict
+checked_at
+```
+
+The existing implementation plan's relational design follows the report's requirement for PostgreSQL-based provenance storage while making the database structure concrete for implementation. 
+
+---
+
+# 16. SHA-256 Design
+
+Use **two important hashes**.
+
+### Hash 1 — Original
+
+```text
+AI Generated Image
+       ↓
+SHA-256
+       ↓
+original_hash
+```
+
+Useful for internal auditing.
+
+### Hash 2 — Registered Watermarked Image
+
+```text
+Watermarked Image
+       ↓
+SHA-256
+       ↓
+registered_hash
+```
+
+This is the hash used for verification.
+
+### Verification
+
+```text
+Uploaded Image
+       ↓
+SHA-256
+       ↓
+Compare with registered_hash
+```
+
+---
+
+# 17. Important Difference
+
+### Watermark
+
+Answers:
+
+> **Which registered provenance record does this image correspond to?**
+
+### SHA-256
+
+Answers:
+
+> **Are these exact file bytes identical?**
+
+Therefore:
+
+```text
+Watermark = persistent provenance link
+SHA-256   = exact file integrity check
+```
+
+SHA-256 cannot itself prove authorship and will change after re-encoding, resizing, or compression. 
+
+---
+
+# 18. Verification Logic
+
+The final system should have **four states**:
+
+| Watermark       | Hash      | Result                    |
+| --------------- | --------- | ------------------------- |
+| Found           | Match     | `AUTHENTIC_UNMODIFIED`    |
+| Found           | Different | `TRACED_BUT_MODIFIED`     |
+| Not recoverable | —         | `WATERMARK_UNRECOVERABLE` |
+| Not found       | —         | `NO_WATERMARK_FOUND`      |
+
+### Meaning
+
+#### Authentic
+
+```text
+Watermark ✓
+Hash ✓
+```
+
+The uploaded file matches the registered watermarked file.
+
+#### Traced but modified
+
+```text
+Watermark ✓
+Hash ✗
+```
+
+The system can link it to a registered image, but the submitted file has changed.
+
+#### Watermark unrecoverable
+
+```text
+Watermark ✗
+```
+
+The image may have undergone a transformation severe enough to destroy the watermark.
+
+This is **inconclusive**, not proof of forgery.
+
+#### No watermark
+
+The image is not registered with this system.
+
+This does **not** mean that the image is fake.
+
+---
+
+# 19. FastAPI API Design
+
+## Authentication
+
+```text
+POST /api/auth/register
+POST /api/auth/login
+```
+
+## Generation
+
+```text
+POST /api/media/generate
+POST /api/media/upload
+```
+
+## Watermark
+
+```text
+POST /api/media/{media_id}/watermark
+```
+
+## Registration
+
+```text
+POST /api/media/{media_id}/register
+```
+
+## Verification
+
+```text
+POST /api/verify
+```
+
+## Information
+
+```text
+GET /api/media
+GET /api/provenance/{provenance_id}
+GET /api/verify/history
+```
+
+---
+
+# 20. Frontend Pages
+
+### Essential MVP
+
+```text
+Login
+Register
+Dashboard
+Generate Image
+Register Media
+Verify Media
+Verification Result
+```
+
+### Additional
+
+```text
+Provenance Details
+History
+Profile
+```
+
+---
+
+# 21. User Flow
+
+## Flow A — Generate
+
+```text
+Login
+ ↓
+Enter prompt
+ ↓
+Generate
+ ↓
+AI image
+ ↓
+Store original
+ ↓
+Calculate original hash
+```
+
+---
+
+## Flow B — Register
+
+```text
+Generated image
+ ↓
+Normalize
+ ↓
+DWT-DCT
+ ↓
+Embed payload
+ ↓
+Create watermarked image
+ ↓
+Calculate SHA-256
+ ↓
+Save watermark record
+ ↓
+Save provenance record
+ ↓
+Registered
+```
+
+---
+
+## Flow C — Verify Original
+
+```text
+Upload
+ ↓
+Extract watermark
+ ↓
+Find provenance
+ ↓
+Calculate SHA-256
+ ↓
+Hash matches
+ ↓
+AUTHENTIC_UNMODIFIED
+```
+
+---
+
+## Flow D — Verify Modified
+
+```text
+Upload modified image
+ ↓
+Extract watermark
+ ↓
+Find provenance
+ ↓
+Calculate SHA-256
+ ↓
+Hash differs
+ ↓
+TRACED_BUT_MODIFIED
+```
+
+---
+
+# 22. Folder Structure
+
+```text
+project/
+│
+├── frontend/
+│   ├── src/
+│   │   ├── pages/
+│   │   ├── components/
+│   │   ├── api/
+│   │   ├── context/
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   └── package.json
+│
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── routers/
+│   │   │   ├── auth.py
+│   │   │   ├── media.py
+│   │   │   ├── verify.py
+│   │   │   └── provenance.py
+│   │   │
+│   │   ├── services/
+│   │   │   ├── ai_generation.py
+│   │   │   ├── preprocessing.py
+│   │   │   ├── hashing.py
+│   │   │   └── verification_engine.py
+│   │   │
+│   │   ├── models/
+│   │   ├── schemas/
+│   │   ├── auth/
+│   │   ├── db/
+│   │   └── config.py
+│   │
+│   ├── requirements.txt
+│   └── .env.example
+│
+├── watermark/
+│   ├── embed.py
+│   ├── extract.py
+│   ├── transforms.py
+│   ├── ecc.py
+│   └── tests/
+│
+├── database/
+│   ├── schema.sql
+│   └── seed_data.sql
+│
+├── storage/
+│   ├── originals/
+│   └── watermarked/
+│
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── robustness/
+│   └── security/
+│
+├── docs/
+│   ├── architecture.md
+│   ├── api_reference.md
+│   └── watermark_design.md
+│
+├── docker-compose.yml
+└── README.md
+```
+
+Keeping `watermark/` separate is intentional: it allows the core research component to be tested independently of the web application. 
+
+---
+
+# 23. Development Phases
+
+## Phase 0 — Watermark Prototype ⭐
+
+**Do this FIRST.**
+
+Build:
+
+```text
+Image
+ ↓
+DWT
+ ↓
+DCT
+ ↓
+1-bit embedding
+ ↓
+1-bit extraction
+```
+
+No React.
+
+No FastAPI.
+
+No database.
+
+### Completion
+
+Successfully recover one bit.
+
+---
+
+## Phase 1 — Full Watermark Engine
+
+Implement:
+
+* Full payload
+* DWT
+* DCT
+* Coefficient modification
+* ECC
+* Blind extraction
+* Magic header/checksum
+
+### Completion
+
+```text
+Payload
+ ↓
+Embed
+ ↓
+Extract
+ ↓
+Same payload
+```
+
+on at least 5 test images.
+
+---
+
+# Phase 2 — Robustness Experiments
+
+Test:
+
+```text
+JPEG 90
+JPEG 75
+JPEG 50
+Resize 50%
+Resize 75%
+Resize 150%
+Brightness
+Noise
+Format conversion
+```
+
+Record:
+
+* Extraction success
+* Bit error rate
+* PSNR
+* SSIM
+
+Do **not** invent results.
+
+---
+
+# Phase 3 — Project Setup
+
+Build:
+
+* Git repository
+* React
+* FastAPI
+* PostgreSQL
+* Docker Compose
+* Environment configuration
+
+---
+
+# Phase 4 — Authentication
+
+Build:
+
+```text
+Register
+ ↓
+Password Hash
+ ↓
+PostgreSQL
+ ↓
+Login
+ ↓
+JWT
+```
+
+---
+
+# Phase 5 — AI Generation
+
+Build:
+
+```text
+Prompt
+ ↓
+Selected AI API
+ ↓
+Image
+ ↓
+Storage
+ ↓
+Original SHA-256
+ ↓
+generated_media
+```
+
+---
+
+# Phase 6 — Provenance Registration
+
+Integrate:
+
+```text
+AI Image
+ ↓
+Watermark
+ ↓
+Hash
+ ↓
+Watermark Record
+ ↓
+Provenance Record
+```
+
+---
+
+# Phase 7 — Verification Engine
+
+Build:
+
+```text
+Upload
+ ↓
+Normalize
+ ↓
+Extract
+ ↓
+Payload validation
+ ↓
+Database lookup
+ ↓
+SHA-256
+ ↓
+Compare
+ ↓
+Verdict
+```
+
+---
+
+# Phase 8 — Frontend
+
+Connect:
+
+```text
+Login
+Generate
+Register
+Verify
+Results
+History
+```
+
+---
+
+# Phase 9 — Complete Testing
+
+Perform:
+
+* Unit tests
+* Integration tests
+* Security tests
+* Robustness tests
+* Performance tests
+* End-to-end testing
+
+---
+
+# Phase 10 — Deployment
+
+Deploy:
+
+```text
+React
+ ↓
+Frontend hosting
+
+FastAPI
+ ↓
+Backend hosting
+
+PostgreSQL
+ ↓
+Managed database
+
+Images
+ ↓
+Persistent/S3-compatible storage
+```
+
+---
+
+# 24. Testing Strategy
+
+## Unit Tests
+
+Test:
+
+* DWT
+* IDWT
+* DCT
+* IDCT
+* Embedding
+* Extraction
+* ECC
+* Hashing
+* Preprocessing
+
+---
+
+## Integration Tests
+
+Test:
+
+```text
+Generate
+ ↓
+Watermark
+ ↓
+Register
+ ↓
+Verify
+```
+
+as one complete workflow.
+
+---
+
+## Security Tests
+
+Test:
+
+* Invalid login
+* Expired JWT
+* Invalid JWT
+* SQL injection
+* Invalid file types
+* Oversized uploads
+* Unauthorized media access
+* Path traversal
+* API abuse
+
+---
+
+# 25. Watermark Evaluation
+
+Measure:
+
+### PSNR
+
+Measures image distortion.
+
+Higher:
+
+```text
+PSNR ↑
+=
+Less distortion
+```
+
+### SSIM
+
+Measures structural similarity.
+
+Closer to:
+
+```text
+1.0
+```
+
+means greater similarity.
+
+### Extraction Accuracy
+
+```text
+Correctly recovered bits
+─────────────────────────
+Total embedded bits
+```
+
+### Robustness
+
+Measure separately for each transformation.
+
+For example:
+
+```text
+JPEG 90 → X%
+JPEG 75 → X%
+JPEG 50 → X%
+Resize 50% → X%
+Resize 75% → X%
+```
+
+Do not produce one generic "robustness = 95%" number.
+
+### Processing Time
+
+Measure:
+
+```text
+Embedding time
+Extraction time
+Hashing time
+Verification time
+```
+
+The existing plan correctly emphasizes reporting measured results rather than fabricated performance/robustness values. 
+
+---
+
+# 26. MVP Acceptance Criteria
+
+The project is considered functional only when all of these work:
+
+### Test 1
+
+```text
+Generate image
+       ↓
+Watermark
+       ↓
+Register
+       ↓
+Verify
+       ↓
+AUTHENTIC_UNMODIFIED
+```
+
+### Test 2
+
+```text
+Registered image
+       ↓
+JPEG compression
+       ↓
+Verify
+       ↓
+Watermark recovered
+       ↓
+TRACED_BUT_MODIFIED
+```
+
+### Test 3
+
+```text
+Registered image
+       ↓
+Resize
+       ↓
+Normalize
+       ↓
+Verify
+       ↓
+Watermark extraction result recorded
+```
+
+### Test 4
+
+```text
+Random image
+       ↓
+Verify
+       ↓
+NO_WATERMARK_FOUND
+```
+
+### Test 5
+
+```text
+Severely transformed image
+       ↓
+Verify
+       ↓
+WATERMARK_UNRECOVERABLE
+```
+
+if the watermark can no longer be recovered.
+
+---
+
+# 27. Team Distribution
+
+For the three-person team:
+
+## Person 1 — Watermarking & Multimedia
+
+Responsible for:
+
+* DWT
+* DCT
+* Embedding
+* Extraction
+* ECC
+* PSNR
+* SSIM
+* Robustness experiments
+
+This is the **highest-risk technical component**.
+
+---
+
+## Person 2 — Backend & Database
+
+Responsible for:
+
+* FastAPI
+* PostgreSQL
+* SQLAlchemy
+* Authentication
+* JWT
+* APIs
+* Provenance
+* Verification engine
+* Security
+
+---
+
+## Person 3 — AI, Frontend & Integration
+
+Responsible for:
+
+* AI generation
+* React
+* Tailwind
+* Dashboard
+* Generate page
+* Verify page
+* Integration
+* Deployment
+* Demo
+
+---
+
+# 28. Final Demonstration
+
+The demo should take approximately **5–10 minutes**.
+
+### Step 1 — Login
+
+Show the application.
+
+### Step 2 — Generate
+
+Prompt:
+
+> "A futuristic city at night"
+
+Generate image.
+
+### Step 3 — Watermark
+
+Show:
+
+```text
+Original Image
+       vs
+Watermarked Image
+```
+
+Demonstrate that visually they look almost identical.
+
+Show:
+
+```text
+Payload ID
+SHA-256
+```
+
+### Step 4 — Register
+
+Show:
+
+```text
+Provenance ID
+Owner
+Timestamp
+Hash
+```
+
+### Step 5 — Download
+
+Download the protected image.
+
+### Step 6 — Verify Original
+
+Upload it.
+
+Expected:
+
+```text
+✓ AUTHENTIC
+✓ WATERMARK FOUND
+✓ HASH MATCH
+```
+
+### Step 7 — Modify
+
+Compress/resize the image.
+
+### Step 8 — Verify Modified
+
+Expected:
+
+```text
+✓ WATERMARK FOUND
+✗ HASH DIFFERENT
+
+TRACED BUT MODIFIED
+```
+
+### Step 9 — Random Image
+
+Upload an unrelated image.
+
+Expected:
+
+```text
+NO WATERMARK FOUND
+```
+
+### Step 10 — Explain Limitation
+
+Mention that the system is designed for common transformations and is **not claimed to be immune to deliberate watermark-removal attacks**.
+
+---
+
+# 29. The Most Important Technical Rule
+
+The project should **not** be developed as:
+
+```text
+React
+ ↓
+FastAPI
+ ↓
+Database
+ ↓
+Watermark later
+```
+
+Instead:
+
+```text
+              ┌─────────────────┐
+              │ DWT-DCT Prototype│
+              └────────┬────────┘
+                       ↓
+                 Full Payload
+                       ↓
+                 Error Correction
+                       ↓
+                  JPEG Test
+                       ↓
+                  Resize Test
+                       ↓
+              PSNR / SSIM Results
+                       ↓
+                 WATERMARK WORKS
+                       ↓
+              ┌─────────────────┐
+              │ Build Web System│
+              └─────────────────┘
+```
+
+This is the **single biggest change** I recommend.
+
+---
+
+# 30. First 15 Tasks
+
+Here is the exact order I would follow:
+
+| #  | Task                                        | Priority |
+| -- | ------------------------------------------- | -------- |
+| 1  | Create Git repository and project structure | 🔴       |
+| 2  | Install OpenCV, NumPy, PyWavelets, Pillow   | 🔴       |
+| 3  | Implement DWT/IDWT                          | 🔴       |
+| 4  | Implement 8×8 DCT/IDCT                      | 🔴       |
+| 5  | Test transform round-trip                   | 🔴       |
+| 6  | Implement 1-bit coefficient embedding       | 🔴       |
+| 7  | Implement 1-bit extraction                  | 🔴       |
+| 8  | Implement full payload                      | 🔴       |
+| 9  | Add repetition/error correction             | 🔴       |
+| 10 | Add payload validation/checksum             | 🔴       |
+| 11 | Test on 5+ images                           | 🔴       |
+| 12 | Test JPEG compression                       | 🔴       |
+| 13 | Test resizing with normalization            | 🔴       |
+| 14 | Measure PSNR + SSIM and tune `delta`        | 🔴       |
+| 15 | Only then integrate with FastAPI/PostgreSQL | 🔴       |
+
+---
+
+# 31. Final Architecture of the Completed Project
+
+The finished system should ultimately look like:
+
+```text
+                         USER
+                          │
+                          ▼
+              ┌─────────────────────┐
+              │ React + Tailwind UI │
+              └──────────┬──────────┘
+                         │
+                         ▼
+                  ┌────────────┐
+                  │  FastAPI   │
+                  └─────┬──────┘
+                        │
+          ┌─────────────┼─────────────┐
+          │             │             │
+          ▼             ▼             ▼
+     AI Generation  Watermarking    Verification
+          │             │             │
+          │        ┌────┴────┐        │
+          │        │   DWT   │        │
+          │        └────┬────┘        │
+          │             ▼             │
+          │        ┌────────┐         │
+          │        │   DCT  │         │
+          │        └────┬───┘         │
+          │             ▼             │
+          │       Watermark           │
+          │             │             │
+          └─────────────┼─────────────┘
+                        ▼
+                   SHA-256
+                        │
+              ┌─────────┴─────────┐
+              ▼                   ▼
+        ┌───────────┐       ┌────────────┐
+        │ PostgreSQL│       │   Storage  │
+        │ Provenance│       │   Images   │
+        └───────────┘       └────────────┘
+```
+
+## The core contribution
+
+The project can be summarized in one line:
+
+> **An end-to-end provenance system that embeds a compact invisible identifier into AI-generated images using DWT-DCT watermarking, stores the associated provenance and integrity information in PostgreSQL, and verifies later copies by combining watermark extraction with SHA-256 comparison.**
+
+That stays very close to the report's intended methodology while making the engineering implementation more realistic. 
+
+### Final development priority
+
+**Watermarking → Robustness → Backend → Database → AI Generation → Verification → Frontend → Deployment**
+
+That is the order I would use for the actual project. The previous plan's own risk assessment also identifies the DWT-DCT embed/extract pipeline and blind extraction as the highest-risk components, so bringing that work to the front is the most important structural improvement. 

@@ -1,0 +1,27 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+
+.pytest_cache/
+.vscode/
+.idea/
+
+dev_output_*.png
+dev_e2e_output.png
+*.log
+
+# Python build/package artifacts
+*.egg-info/
+build/
+dist/
+
+# Generated/extracted files
+docx_text.txt
+pdf_text.txt
+pptx_text.txt
+
+# Generated test images
+watermarked_synthetic.png
