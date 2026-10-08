@@ -18,6 +18,7 @@ from app.api.routes.upload import router as upload_router
 from app.api.routes.watermark import router as watermark_router
 from app.api.routes.verify import router as verify_router
 from app.api.routes.generate import router as generate_router
+from app.api.routes.detect import router as detect_ai_router
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -63,6 +64,7 @@ app.include_router(upload_router)
 app.include_router(watermark_router)
 app.include_router(verify_router)
 app.include_router(generate_router)
+app.include_router(detect_ai_router)
 
 # ---------------------------------------------------------------------------
 # Startup / shutdown hooks

@@ -54,16 +54,21 @@ async def generate_endpoint(
             detail="An unexpected error occurred during image generation."
         )
 
+    # Determine if JPEG or PNG based on magic bytes
+    is_jpeg = image_bytes.startswith(b"\xff\xd8\xff")
+    media_type = "image/jpeg" if is_jpeg else "image/png"
+    ext = "jpg" if is_jpeg else "png"
+
     # Return the raw image bytes. We'll use custom headers to bubble up the provider and model
     # so the frontend can capture them for the subsequent provenance registration step.
     headers = {
         "X-AI-Provider": provider,
         "X-AI-Model": model,
-        "Content-Disposition": 'attachment; filename="generated_image.png"',
+        "Content-Disposition": f'attachment; filename="generated_image.{ext}"',
     }
 
     return Response(
         content=image_bytes,
-        media_type="image/png",
+        media_type=media_type,
         headers=headers,
     )

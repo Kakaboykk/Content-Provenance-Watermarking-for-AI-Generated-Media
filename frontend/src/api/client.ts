@@ -37,6 +37,13 @@ export interface VerificationResponse {
   } | null;
 }
 
+export interface AIDetectionResponse {
+  label: 'AI_GENERATED' | 'LIKELY_HUMAN' | 'UNCERTAIN';
+  confidence: number;
+  provider: string;
+  model: string;
+}
+
 export const api = {
   // Generate Image
   generateImage: async (prompt: string): Promise<GenerateResponse> => {
@@ -86,6 +93,18 @@ export const api = {
     formData.append('file', fileBlob, 'verify.png');
 
     const response = await apiClient.post<VerificationResponse>('/verify', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    return response.data;
+  },
+
+  // Detect AI Content
+  detectAI: async (fileBlob: Blob): Promise<AIDetectionResponse> => {
+    const formData = new FormData();
+    formData.append('file', fileBlob, 'detect.png');
+
+    const response = await apiClient.post<AIDetectionResponse>('/detect-ai', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
 

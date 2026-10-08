@@ -20,6 +20,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
+os.environ["AI_PROVIDER"] = "mock"
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -81,3 +82,9 @@ def client(db_session):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+@pytest.fixture(autouse=True)
+def force_mock_ai_provider(monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "AI_PROVIDER", "mock")
+    monkeypatch.setattr(settings, "AI_DETECTOR_PROVIDER", "mock")

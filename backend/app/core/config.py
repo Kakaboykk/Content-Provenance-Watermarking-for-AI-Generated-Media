@@ -25,6 +25,18 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
 
+    # ---- AI Generation ---------------------------------------------------
+    AI_PROVIDER: str = "mock"
+    AI_API_KEY: str | None = None
+    AI_MODEL: str = "black-forest-labs/FLUX.1-schnell"
+
+    # ---- AI Detection ----------------------------------------------------
+    AI_DETECTOR_PROVIDER: str = "mock"
+    AI_DETECTOR_MODEL: str = "Nahrawy/AI-Vs-Human-Image-Detection"
+    AI_DETECTOR_THRESHOLD: float = 0.70
+    SIGHTENGINE_API_USER: str | None = None
+    SIGHTENGINE_API_SECRET: str | None = None
+
     # Pydantic v2 config
     model_config = SettingsConfigDict(
         env_file=".env",          # relative to the working directory (backend/)

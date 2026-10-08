@@ -4,7 +4,7 @@ import cv2
 
 from watermark.config import CANONICAL_WIDTH, CANONICAL_HEIGHT
 
-def preprocess_image(image: Image.Image) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def preprocess_image(image: Image.Image, target_size=None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Preprocess an image for watermarking according to the specification.
     
@@ -17,6 +17,9 @@ def preprocess_image(image: Image.Image) -> tuple[np.ndarray, np.ndarray, np.nda
         We will return Y, Cb, Cr as float32 to be consistent with standard OpenCV conversions,
         but only Y will be modified by the watermark.
     """
+    if target_size is None:
+        target_size = (CANONICAL_WIDTH, CANONICAL_HEIGHT)
+
     # 1. EXIF rotation and strip
     img = ImageOps.exif_transpose(image)
     
@@ -37,10 +40,10 @@ def preprocess_image(image: Image.Image) -> tuple[np.ndarray, np.ndarray, np.nda
         img = img.convert('RGB')
 
     # 4. Resize
-    img = img.resize((CANONICAL_WIDTH, CANONICAL_HEIGHT), Image.Resampling.LANCZOS)
+    img = img.resize(target_size, Image.Resampling.LANCZOS)
 
     # Convert PIL Image to OpenCV format (numpy array)
-    img_np = np.array(img) # Shape: (512, 512, 3), RGB
+    img_np = np.array(img) # Shape: (target_size[1], target_size[0], 3), RGB
 
     # 5. Color space: RGB to YCbCr
     # OpenCV's cv2.COLOR_RGB2YCrCb uses ITU-R BT.601

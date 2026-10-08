@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.models.verification import VerificationRecord
 from app.models.asset import WatermarkedAsset
 from app.schemas.verification import VerificationRecordCreate, VerificationRecordRead
-from watermark.extract import extract_watermark_with_stats
+from watermark.extract import extract_watermark_full
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def verify_image_bytes(
         raise VerificationServiceError(f"Failed to decode image bytes: {exc}") from exc
 
     try:
-        verdict, extracted_uuid, stats = extract_watermark_with_stats(img)
+        verdict, extracted_uuid, stats = extract_watermark_full(img)
     except Exception as exc:
         logger.error(f"Phase 0 extraction failed entirely: {exc}")
         raise VerificationServiceError("Fatal error during watermark extraction.") from exc

@@ -88,10 +88,26 @@ async def embed_watermark_endpoint(
         logger.error(f"Failed to create provenance record: {exc}")
         raise HTTPException(status_code=500, detail="Database error creating provenance record.")
 
-    # 4. Embed Watermark (CPU intensive Phase 0)
+    # 4. Convert to PNG if necessary for the frozen watermark pipeline
+    pipeline_bytes = raw_bytes
+    if not raw_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        try:
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            if img.size != (512, 512):
+                img = img.resize((512, 512))
+            out_buf = io.BytesIO()
+            img.save(out_buf, format="PNG")
+            pipeline_bytes = out_buf.getvalue()
+        except Exception as exc:
+            logger.error(f"Failed to convert image to PNG: {exc}")
+            raise HTTPException(status_code=400, detail="Invalid image format for watermark pipeline.")
+
+    # 5. Embed Watermark (CPU intensive Phase 0)
     try:
         watermarked_bytes = embed_watermark_in_bytes(
-            image_bytes=raw_bytes,
+            image_bytes=pipeline_bytes,
             provenance_uuid=provenance.provenance_uuid
         )
     except WatermarkServiceError as exc:
