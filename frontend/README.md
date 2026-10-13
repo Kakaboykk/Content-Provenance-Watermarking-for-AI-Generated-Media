@@ -1,32 +1,60 @@
-# React + TypeScript + Vite
+# Content-Provenance Watermarking Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A modern, responsive web application for generating, protecting, and verifying AI-generated images with cryptographic provenance tracking.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Tech Stack
 
-## React Compiler
+- **Framework**: [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
+- **Build Tool**: [Vite](https://vitejs.dev/)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
+- **Animations**: [Framer Motion](https://www.framer.com/motion/)
+- **Icons**: [Lucide React](https://lucide.dev/)
+- **HTTP Client**: [Axios](https://axios-http.com/)
+- **Routing**: [React Router DOM v7](https://reactrouter.com/)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the Oxlint configuration
+## Architecture & Views
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+The application provides four main interactive flows wrapped in a unified layout:
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+| View | Path | Description |
+| :--- | :--- | :--- |
+| **Dashboard** | `/` | System overview, quick action tiles, and provenance verification metrics. |
+| **Generate Flow** | `/generate` | Enter prompts to generate AI images with immediate, automatic watermark injection. |
+| **Protect Flow** | `/protect` | Upload existing images to embed an invisible DWT-DCT watermark and download the signed asset. |
+| **Verify Flow** | `/verify` | Blind watermark extraction, provenance ledger lookup, crop diagnostics, and AI probability scoring. |
+| **History View** | `/history` | Searchable provenance audit log showing generated assets, SHA-256 hashes, and verification history. |
+
+---
+
+## Getting Started
+
+### 1. Install Dependencies
+
+```bash
+npm install
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+### 2. Run the Development Server
+
+```bash
+npm run dev
+```
+
+The frontend will start at `http://localhost:5173`.
+
+### 3. Build for Production
+
+```bash
+npm run build
+```
+
+---
+
+## Backend API Proxy
+
+Development requests made to `/api/*` are automatically forwarded to the FastAPI backend running at `http://localhost:8000` via the Vite proxy configured in `vite.config.ts`.
+Ensure the backend server is running when testing live generation or verification flows.
