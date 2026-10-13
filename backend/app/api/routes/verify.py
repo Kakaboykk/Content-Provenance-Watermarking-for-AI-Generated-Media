@@ -18,6 +18,8 @@ from app.schemas.provenance import ProvenanceRecordRead
 from app.schemas.verification import VerificationRecordRead
 from app.services.verification import verify_image_bytes, VerificationServiceError
 from app.services.provenance import get_provenance_record_by_uuid
+from app.services.ai_detectors import get_ai_detector
+from app.api.routes.detect import AIDetectionResponse
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,7 @@ class VerificationResponse(BaseModel):
     verdict: str
     provenance_record: ProvenanceRecordRead | None
     verification_record: VerificationRecordRead
+    ai_detection: AIDetectionResponse | None = None
 
 
 @router.post(
@@ -77,9 +80,26 @@ async def verify_endpoint(
             prov_record = prov
             match_found = True
 
+    # 2. Independent AI Detection
+    ai_result = None
+    try:
+        detector = get_ai_detector()
+        det_res = await detector.detect_image(raw_bytes)
+        ai_result = AIDetectionResponse(
+            label=det_res.get("label", "UNCERTAIN"),
+            confidence=float(det_res.get("confidence", 0.0)),
+            provider=str(det_res.get("provider", "unknown")),
+            model=str(det_res.get("model", "unknown")),
+        )
+    except Exception as exc:
+        logger.error(f"AI detection failed during verification: {exc}")
+        # Swallow the exception to maintain independence
+        ai_result = None
+
     return VerificationResponse(
         match_found=match_found,
         verdict=ver_record.verdict,
         provenance_record=prov_record,
         verification_record=ver_record,
+        ai_detection=ai_result,
     )

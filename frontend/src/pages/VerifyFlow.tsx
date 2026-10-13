@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, AlertTriangle, XCircle, Search, UploadCloud, Loader2, Sparkles, User, HelpCircle } from 'lucide-react';
-import { api, type VerificationResponse, type AIDetectionResponse } from '../api/client';
+import { api, type VerificationResponse } from '../api/client';
 
 export default function VerifyFlow() {
   const [fileBlob, setFileBlob] = useState<Blob | null>(null);
@@ -9,7 +9,6 @@ export default function VerifyFlow() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<VerificationResponse | null>(null);
-  const [detectionResult, setDetectionResult] = useState<AIDetectionResponse | null>(null);
   const [detectionError, setDetectionError] = useState<string | null>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,31 +28,23 @@ export default function VerifyFlow() {
     setIsLoading(true);
     setError('');
     setDetectionError(null);
+    setDetectionError(null);
     setResult(null);
-    setDetectionResult(null);
     
-    // Execute both independent requests in parallel
-    const verifyPromise = api.verifyImage(fileBlob);
-    const detectPromise = api.detectAI(fileBlob);
-
-    const [verifySettled, detectSettled] = await Promise.allSettled([
-      verifyPromise,
-      detectPromise
-    ]);
-
+    try {
+      const response = await api.verifyImage(fileBlob);
+      setResult(response);
+      
+      if (!response.ai_detection) {
+        setDetectionError('AI detection unavailable');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Verification failed');
+      // If the entire verification endpoint failed (e.g. 500 error), we don't have AI detection either
+      setDetectionError('AI detection unavailable');
+    }
+    
     setIsLoading(false);
-
-    if (verifySettled.status === 'fulfilled') {
-      setResult(verifySettled.value);
-    } else {
-      setError(verifySettled.reason?.response?.data?.detail || verifySettled.reason?.message || 'Verification failed');
-    }
-
-    if (detectSettled.status === 'fulfilled') {
-      setDetectionResult(detectSettled.value);
-    } else {
-      setDetectionError(detectSettled.reason?.response?.data?.detail || detectSettled.reason?.message || 'AI detection unavailable');
-    }
   };
 
   const renderResultBadge = () => {
@@ -97,6 +88,16 @@ export default function VerifyFlow() {
             <h2 className="text-2xl font-bold text-red-400 mb-2">Watermark Corrupted</h2>
             <p className="text-zinc-400 text-center">
               Watermark data was detected but could not be fully recovered. The image may have been modified, recompressed, transformed, or the watermark may be corrupted.
+            </p>
+          </div>
+        );
+      case 'WATERMARK_EXTRACTION_ERROR':
+        return (
+          <div className="flex flex-col items-center p-6 bg-red-500/10 border border-red-500/30 rounded-xl">
+            <AlertTriangle className="w-16 h-16 text-red-400 mb-4" />
+            <h2 className="text-2xl font-bold text-red-400 mb-2">Extraction Error</h2>
+            <p className="text-zinc-400 text-center">
+              An unexpected error occurred during watermark extraction.
             </p>
           </div>
         );
@@ -241,7 +242,7 @@ export default function VerifyFlow() {
                 )}
                 
                 {/* Independent AI Detection Card */}
-                {(detectionResult || detectionError) && (
+                {(result?.ai_detection || detectionError) && (
                   <div className="glass-card p-6 mt-4 border border-zinc-700/50 relative overflow-hidden">
                     <h4 className="text-lg font-medium text-white mb-4 border-b border-zinc-800 pb-2">AI IMAGE DETECTION</h4>
                     
@@ -252,37 +253,37 @@ export default function VerifyFlow() {
                       </div>
                     ) : (
                       <div className="flex items-start">
-                        {detectionResult?.label === 'AI_GENERATED' && (
+                        {result?.ai_detection?.label === 'AI_GENERATED' && (
                           <Sparkles className="w-12 h-12 text-purple-400 mr-4 mt-1 flex-shrink-0" />
                         )}
-                        {detectionResult?.label === 'LIKELY_HUMAN' && (
+                        {result?.ai_detection?.label === 'LIKELY_HUMAN' && (
                           <User className="w-12 h-12 text-blue-400 mr-4 mt-1 flex-shrink-0" />
                         )}
-                        {detectionResult?.label === 'UNCERTAIN' && (
+                        {result?.ai_detection?.label === 'UNCERTAIN' && (
                           <HelpCircle className="w-12 h-12 text-zinc-400 mr-4 mt-1 flex-shrink-0" />
                         )}
                         
                         <div className="flex-1">
                           <h2 className={`text-2xl font-bold mb-1 ${
-                            detectionResult?.label === 'AI_GENERATED' ? 'text-purple-400' : 
-                            detectionResult?.label === 'LIKELY_HUMAN' ? 'text-blue-400' : 'text-zinc-400'
+                            result?.ai_detection?.label === 'AI_GENERATED' ? 'text-purple-400' : 
+                            result?.ai_detection?.label === 'LIKELY_HUMAN' ? 'text-blue-400' : 'text-zinc-400'
                           }`}>
-                            {detectionResult?.label === 'AI_GENERATED' && 'AI-GENERATED'}
-                            {detectionResult?.label === 'LIKELY_HUMAN' && 'LIKELY HUMAN'}
-                            {detectionResult?.label === 'UNCERTAIN' && 'UNCERTAIN'}
+                            {result?.ai_detection?.label === 'AI_GENERATED' && 'AI-GENERATED'}
+                            {result?.ai_detection?.label === 'LIKELY_HUMAN' && 'LIKELY HUMAN'}
+                            {result?.ai_detection?.label === 'UNCERTAIN' && 'UNCERTAIN'}
                           </h2>
                           <div className="text-3xl font-light text-white mb-4">
-                            {Math.round((detectionResult?.confidence || 0) * 100)}% <span className="text-sm text-zinc-500">confidence</span>
+                            {Math.round((result?.ai_detection?.confidence || 0) * 100)}% <span className="text-sm text-zinc-500">confidence</span>
                           </div>
                           
                           <div className="grid grid-cols-2 gap-4">
                             <div>
                               <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Provider</p>
-                              <p className="text-sm text-zinc-300 capitalize">{detectionResult?.provider}</p>
+                              <p className="text-sm text-zinc-300 capitalize">{result?.ai_detection?.provider}</p>
                             </div>
                             <div>
                               <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Model</p>
-                              <p className="text-sm text-zinc-300 break-all">{detectionResult?.model}</p>
+                              <p className="text-sm text-zinc-300 break-all">{result?.ai_detection?.model}</p>
                             </div>
                           </div>
                         </div>

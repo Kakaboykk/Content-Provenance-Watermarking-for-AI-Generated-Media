@@ -23,7 +23,7 @@ export interface WatermarkEmbedResponse {
 }
 
 export interface VerificationResponse {
-  verdict: 'AUTHENTIC_UNMODIFIED' | 'TRACED_BUT_MODIFIED' | 'WATERMARK_UNRECOVERABLE' | 'NO_WATERMARK_FOUND';
+  verdict: 'AUTHENTIC_UNMODIFIED' | 'TRACED_BUT_MODIFIED' | 'WATERMARK_UNRECOVERABLE' | 'NO_WATERMARK_FOUND' | 'WATERMARK_EXTRACTION_ERROR';
   match_found: boolean;
   provenance_record: {
     id: string;
@@ -35,6 +35,7 @@ export interface VerificationResponse {
     metadata: any;
     created_at: string;
   } | null;
+  ai_detection?: AIDetectionResponse;
 }
 
 export interface AIDetectionResponse {

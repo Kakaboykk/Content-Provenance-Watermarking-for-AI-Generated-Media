@@ -60,7 +60,9 @@ def verify_image_bytes(
         verdict, extracted_uuid, stats = extract_watermark_full(img)
     except Exception as exc:
         logger.error(f"Phase 0 extraction failed entirely: {exc}")
-        raise VerificationServiceError("Fatal error during watermark extraction.") from exc
+        verdict = "WATERMARK_EXTRACTION_ERROR"
+        extracted_uuid = None
+        stats = {"error": str(exc)}
 
     # Serialize stats bytes (if candidate bytes exist) to hex for JSON storage
     if stats.get("candidate_bytes"):

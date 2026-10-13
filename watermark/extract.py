@@ -72,10 +72,84 @@ def extract_watermark_full(image: Image.Image, delta: float = DELTA_INITIAL) -> 
     s_verdict, s_uid, s_stats = extract_watermark_scale_search(image, delta, best_verdict=best_verdict)
     return s_verdict, s_uid, s_stats
 
+def fast_extract_from_Y(Y: np.ndarray, delta: float, valid_mask: Optional[np.ndarray] = None) -> Tuple[str, Optional[uuid.UUID], dict]:
+    stats = {"candidate_bytes": None, "ecc_success": False, "crc_success": False}
+    
+    _, (_, HL, _) = apply_dwt(Y)
+    
+    extracted_bits = [[0] * 384 for _ in range(REPETITIONS)]
+    valid_votes = [[True] * 384 for _ in range(REPETITIONS)]
+    
+    for c_idx in range(REPETITIONS):
+        copy_blocks = get_copy_blocks(c_idx)
+        for k in range(BLOCKS_PER_RS_COPY):
+            block_idx = copy_blocks[k]
+            row = block_idx // 32
+            col = block_idx % 32
+            
+            r_start, r_end = row * 8, row * 8 + 8
+            c_start, c_end = col * 8, col * 8 + 8
+            block = HL[r_start:r_end, c_start:c_end]
+            
+            if block.shape != (8, 8):
+                if block.size == 0:
+                    bit_0, bit_1 = 0, 0
+                else:
+                    padded = np.zeros((8, 8), dtype=block.dtype)
+                    r_valid, c_valid = block.shape
+                    padded[:r_valid, :c_valid] = block
+                    dct_block = apply_dct(padded)
+                    bit_0 = qim_extract(dct_block[DCT_COEFF_POS_1], delta)
+                    bit_1 = qim_extract(dct_block[DCT_COEFF_POS_2], delta)
+            else:
+                dct_block = apply_dct(block)
+                bit_0 = qim_extract(dct_block[DCT_COEFF_POS_1], delta)
+                bit_1 = qim_extract(dct_block[DCT_COEFF_POS_2], delta)
+                
+            extracted_bits[c_idx][2 * k] = bit_0
+            extracted_bits[c_idx][2 * k + 1] = bit_1
+            
+            if valid_mask is not None and not valid_mask[row, col]:
+                valid_votes[c_idx][2 * k] = False
+                valid_votes[c_idx][2 * k + 1] = False
+            
+    majority_bits = [0] * 384
+    for i in range(384):
+        votes = sum(extracted_bits[c][i] for c in range(REPETITIONS) if valid_votes[c][i])
+        total_votes = sum(valid_votes[c][i] for c in range(REPETITIONS))
+        
+        if total_votes > 0:
+            majority_bits[i] = 1 if votes >= (total_votes / 2.0) else 0
+        else:
+            v = sum(extracted_bits[c][i] for c in range(REPETITIONS))
+            majority_bits[i] = 1 if v >= 3 else 0
+        
+    deinterleaved_bits = deinterleave(majority_bits)
+    
+    try:
+        candidate_bytes = deserialize_bits_to_bytes(deinterleaved_bits)
+        stats["candidate_bytes"] = candidate_bytes
+    except ValueError:
+        return "WATERMARK_UNRECOVERABLE", None, stats
+        
+    try:
+        decoded_bytes = rs_decode(candidate_bytes)
+        stats["ecc_success"] = True
+    except ECCError:
+        return "WATERMARK_UNRECOVERABLE", None, stats
+        
+    try:
+        provenance_id = parse_payload_bytes(decoded_bytes)
+        stats["crc_success"] = True
+    except PayloadError:
+        return "NO_WATERMARK_FOUND", None, stats
+        
+    return "AUTHENTIC_UNMODIFIED", provenance_id, stats
+
 def extract_watermark_crop_search(image: Image.Image, delta: float = DELTA_INITIAL, best_verdict="NO_WATERMARK_FOUND") -> Tuple[str, Optional[uuid.UUID], dict]:
     w, h = image.size
     
-    CROP_SEARCH_MAX_PERCENT = 15
+    CROP_SEARCH_MAX_PERCENT = 20 # increased to allow 15% crop
     min_dim = 512 * (100 - CROP_SEARCH_MAX_PERCENT) // 100
     if w < min_dim or h < min_dim:
         return best_verdict, None, {}
@@ -85,60 +159,94 @@ def extract_watermark_crop_search(image: Image.Image, delta: float = DELTA_INITI
     
     candidates = []
     
-    # Prioritization order:
-    # 1. Exact edge-aligned crops
-    if dx_max > 0 and dy_max == 0:
-        candidates.extend([(0, 0), (dx_max, 0)])
-    elif dy_max > 0 and dx_max == 0:
-        candidates.extend([(0, 0), (0, dy_max)])
-    
-    # 2. Center crop
+    # 1. Exact geometric anchors
+    # Center
     c_dx = dx_max // 2
     c_dy = dy_max // 2
-    if (c_dx, c_dy) not in candidates:
-        candidates.append((c_dx, c_dy))
-        
-    # 3. All corners (if both cropped)
-    if dx_max > 0 and dy_max > 0:
-        for corner in [(0, 0), (dx_max, 0), (0, dy_max), (dx_max, dy_max)]:
-            if corner not in candidates:
-                candidates.append(corner)
-                
-    # 4. Bounded sweep for remaining possibilities
-    step = 1 
-    # Only sweep dx if there's missing width, dy if missing height
-    dy_range = range(0, dy_max + 1, step) if dy_max > 0 else [0]
-    dx_range = range(0, dx_max + 1, step) if dx_max > 0 else [0]
+    anchors = [(c_dx, c_dy)]
     
-    for dy in dy_range:
-        for dx in dx_range:
+    # Edges
+    if dx_max > 0:
+        anchors.extend([(0, c_dy), (dx_max, c_dy)]) # Left, Right
+    if dy_max > 0:
+        anchors.extend([(c_dx, 0), (c_dx, dy_max)]) # Top, Bottom
+        
+    # Corners
+    if dx_max > 0 and dy_max > 0:
+        anchors.extend([(0, 0), (dx_max, 0), (0, dy_max), (dx_max, dy_max)])
+        
+    for a in anchors:
+        if a not in candidates:
+            candidates.append(a)
+            
+    # 2. Likely integer-aligned offsets around anchors (e.g. +/- 1, 2)
+    for ax, ay in list(candidates):
+        for ox in [-2, -1, 1, 2]:
+            for oy in [-2, -1, 1, 2]:
+                nx, ny = ax + ox, ay + oy
+                if 0 <= nx <= dx_max and 0 <= ny <= dy_max:
+                    if (nx, ny) not in candidates:
+                        candidates.append((nx, ny))
+                        
+    # 3. Bounded sweep for remaining possibilities
+    sweep = []
+    for dy in range(0, dy_max + 1):
+        for dx in range(0, dx_max + 1):
             if (dx, dy) not in candidates:
-                candidates.append((dx, dy))
+                sweep.append((dx, dy))
                 
+    candidates.extend(sweep)
+    
+    # Optimize: Precompute Y channel to avoid cv2.cvtColor in the loop
     import cv2
-    img_np = np.array(image.convert("RGB"))
+    import numpy as np
+    Y, _, _ = preprocess_image(image, target_size=(w, h))
+    
+    import time
+    t0 = time.time()
+    tested_count = 0
+    
+    best_stats = {}
     
     for dx, dy in candidates:
+        tested_count += 1
         top = dy
         bottom = 512 - h - dy
         left = dx
         right = 512 - w - dx
         
-        padded_np = cv2.copyMakeBorder(img_np, top, bottom, left, right, cv2.BORDER_REFLECT)
-        padded_img = Image.fromarray(padded_np)
+        # Pad Y directly
+        padded_Y = cv2.copyMakeBorder(Y, top, bottom, left, right, cv2.BORDER_REFLECT)
         
-        verdict, uid, stats = extract_watermark_with_stats(padded_img, delta, target_size=(512, 512))
+        import math
+        valid_mask = np.zeros((32, 32), dtype=bool)
+        valid_top = int(math.ceil(top / 16.0))
+        valid_bottom = int(math.floor((top + h) / 16.0))
+        valid_left = int(math.ceil(left / 16.0))
+        valid_right = int(math.floor((left + w) / 16.0))
+        valid_mask[valid_top:valid_bottom, valid_left:valid_right] = True
+        
+        verdict, uid, stats = fast_extract_from_Y(padded_Y, delta, valid_mask=valid_mask)
         
         if verdict in ("AUTHENTIC_UNMODIFIED", "TRACED_BUT_MODIFIED"):
+            stats["candidates_tested"] = tested_count
+            stats["extraction_time_sec"] = time.time() - t0
             return verdict, uid, stats
             
         if verdict == "WATERMARK_UNRECOVERABLE" and best_verdict == "NO_WATERMARK_FOUND":
             best_verdict = verdict
-            stats_copy = stats
+            best_stats = stats
             
-    return best_verdict, None, {}
+        # Hard timeout at 45 seconds to prevent 504 Gateway Timeout
+        if time.time() - t0 > 45.0:
+            break
+            
+    best_stats["candidates_tested"] = tested_count
+    best_stats["extraction_time_sec"] = time.time() - t0
+    return best_verdict, None, best_stats
 
-def extract_watermark_scale_search(image: Image.Image, delta: float = DELTA_INITIAL) -> Tuple[str, Optional[uuid.UUID], dict]:
+
+def extract_watermark_scale_search(image: Image.Image, delta: float = DELTA_INITIAL, best_verdict="NO_WATERMARK_FOUND") -> Tuple[str, Optional[uuid.UUID], dict]:
     """
     Extraction pipeline with scale search for resize robustness.
     """
